@@ -1,8 +1,34 @@
 import logging
 import re
+import urllib.parse
+
+from typing import Tuple
 
 from .exceptions import AuthenticationError, DirectLinkNotFound
 
+
+def parse_url(base_url: str, raw_url: str) -> Tuple[int, str]:
+    """
+    Разбирает ссылку и возвращает post_id и имя файла.
+
+    Args:
+        base_url (str): Базовый домен
+        raw_url (str): DL-ссылка
+
+    Returns:
+        Tuple[int, str]: post_id (int), file_name (str, URL encoded)
+    """
+    url = raw_url.strip()
+    pattern = base_url.replace('.', r"\.") + r"/forum/dl/post/(\d+)/(.*?)(?:\?.*)?$"
+    match = re.search(pattern, url)
+
+    if not match:
+        return None, None
+
+    post_id = int(match.group(1))
+    file_name = urllib.parse.quote(match.group(2)).replace('%20', '+')
+
+    return post_id, file_name
 
 def get_direct_link(session, config, url):
     """
@@ -22,6 +48,7 @@ def get_direct_link(session, config, url):
         str: Прямая ссылка для скачивания файла
 
     Raises:
+        ValueError: Если ссылка для скачивания файла не валидная
         ValueError: Если не удалось найти ссылку на attachment в HTML
         DirectLinkNotFound: Если сервер не вернул прямую ссылку после всех попыток
 
@@ -30,6 +57,16 @@ def get_direct_link(session, config, url):
         - Добавляет необходимые cookies modtids и modpids
         - Обрабатывает 404 ошибку как отсутствие доступа к файлу
     """
+    post_id, file_name = parse_url(session.base_url, url)
+
+    if not all([post_id, file_name]):
+        raise ValueError(
+            "Неправильная ссылка для загрузки файла. Ожидается формат: "
+            f"{session.base_url}/forum/dl/post/<ID>/<filename>"
+        )
+
+    url = f"{session.base_url}/forum/dl/post/{post_id}/{file_name}"
+
     logging.info("Открываю страницу загрузки...")
 
     cookies = {k: v for k, v in config.cookies.items() if not k.startswith("__")}
